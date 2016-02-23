@@ -1,12 +1,15 @@
 package bigdata.sea.inmemoryjoin;
 
-import java.io.File;
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Scanner;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Mapper;
 
@@ -22,16 +25,28 @@ public class NameZipMapper extends Mapper<Object, Text, Text, Text> {
 		usersMap = new HashMap<String, String>();
 		Configuration conf = context.getConfiguration();
 		fileName = conf.get(NameZipApplication.FRIENDS);
-		Scanner scanner = new Scanner(new File(fileName));
-		while (scanner.hasNextLine()) {
-			String line = scanner.nextLine();
-			String[] userData = line.split("\t");
-			if (userData.length == 2)
-				usersMap.put(userData[0], userData[1]);
-			else
-				usersMap.put(userData[0], null);
+
+		FileSystem fileSystem = FileSystem.get(conf);
+		Path filePath = new Path(fileName);
+		FileStatus[] fileSystemStatus = fileSystem.listStatus(filePath);
+		for (FileStatus status : fileSystemStatus) {
+			Path userDataPath = status.getPath();
+			BufferedReader br = new BufferedReader(
+					new InputStreamReader(fileSystem.open(userDataPath)));
+
+			String profile = null;
+			do {
+				profile = br.readLine();
+				if (profile != null) {
+					String[] userData = profile.split(",");
+					if (userData.length > 1) {
+						usersMap.put(userData[0].trim(), profile);
+					} else {
+						usersMap.put(userData[0].trim(), "");
+					}
+				}
+			} while (profile != null);
 		}
-		scanner.close();
 	}
 
 	@Override
@@ -48,9 +63,12 @@ public class NameZipMapper extends Mapper<Object, Text, Text, Text> {
 		if (profile.length == 2) {
 			if (user.equalsIgnoreCase(userA) || user.equalsIgnoreCase(userB)) {
 				for (String friend : profile[1].split(",")) {
-					String[] friendData = usersMap.get(friend).split(",");
-					context.write(new Text(friend),
-							new Text(friendData[1] + ":" + friendData[6]));
+					if (usersMap != null && usersMap.containsKey(friend)) {
+						String[] friendData = usersMap.get(friend).split(",");
+						if (friendData.length >= 6)
+							context.write(new Text(friend), new Text(
+									friendData[1] + ":" + friendData[6]));
+					}
 				}
 			}
 		}
